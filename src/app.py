@@ -272,6 +272,7 @@ app = dash.Dash(__name__,
                 requests_pathname_prefix=REQUESTS_PATHNAME_PREFIX,
                 )
 
+@app.route(REQUESTS_PATHNAME_PREFIX)
 def get_layout():
     if not get_django_user():
         return html.H1("Unauthorized")
