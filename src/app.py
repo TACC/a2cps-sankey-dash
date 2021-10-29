@@ -17,6 +17,8 @@ import json
 import plotly.express as px
 import plotly.graph_objects as go
 
+from flask import Flask
+
 # Dash Framework
 import dash
 import dash_core_components as dcc
@@ -49,11 +51,14 @@ def get_django_user():
         if not DJANGO_LOGIN_API:
             return True
         if not DJANGO_SESSION_COOKIE:
-            raise Exception("DJANGO_SESSION_COOKIE environment variable")
+            raise Exception("DJANGO_SESSION_COOKIE environment variable missing")
+        if not request:
+            raise Exception("Request context missing while trying to authorize user")
         session_id = request.cookies.get(DJANGO_SESSION_COOKIE)
         if not session_id:
+            print("Request cookies: ", request.cookies)
             raise Exception("{cookie} cookie is missing".format(cookie=DJANGO_SESSION_COOKIE))
-        api = "{django_login_api}/api/sessions_api/".format(
+        api = "{django_login_api}".format(
             django_login_api=DJANGO_LOGIN_API
         )
         response = requests.get(
@@ -68,7 +73,6 @@ def get_django_user():
         return response.json()
     except Exception as e:
         print(e)
-        print(request.headers)
         return None
 
 # ----------------------------------------------------------------------------
@@ -272,7 +276,6 @@ app = dash.Dash(__name__,
                 requests_pathname_prefix=REQUESTS_PATHNAME_PREFIX,
                 )
 
-@app.route(REQUESTS_PATHNAME_PREFIX)
 def get_layout():
     if not get_django_user():
         return html.H1("Unauthorized")
