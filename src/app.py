@@ -52,6 +52,7 @@ def get_django_user():
             raise Exception("DJANGO_SESSION_COOKIE environment variable")
         session_id = request.cookies.get(DJANGO_SESSION_COOKIE)
         if not session_id:
+            print(request.headers)
             raise Exception("{cookie} cookie is missing".format(cookie=DJANGO_SESSION_COOKIE))
         api = "{django_login_api}/api/sessions_api/".format(
             django_login_api=DJANGO_LOGIN_API
