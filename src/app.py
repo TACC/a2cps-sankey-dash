@@ -43,24 +43,26 @@ def get_django_user():
     Utility function to retrieve logged in username
     from Django
     """
-    DJANGO_LOGIN_HOST = os.environ.get("DJANGO_LOGIN_HOST", None)
-    SESSIONS_API_KEY = os.environ.get("SESSIONS_API_KEY", None)
+    DJANGO_LOGIN_API = os.environ.get("DJANGO_LOGIN_API", None)
+    DJANGO_SESSION_COOKIE = os.environ.get("DJANGO_SESSION_COOKIE", None)
     try:
-        if not DJANGO_LOGIN_HOST:
+        if not DJANGO_LOGIN_API:
             return True
-        session_id = request.cookies.get('sessionid')
+        if not DJANGO_SESSION_COOKIE:
+            raise Exception("DJANGO_SESSION_COOKIE environment variable")
+        session_id = request.cookies.get(DJANGO_SESSION_COOKIE)
         if not session_id:
-            raise Exception("sessionid cookie is missing")
-        if not SESSIONS_API_KEY:
-            raise Exception("SESSIONS_API_KEY not configured")
-        api = "{django_login_host}/api/sessions_api/".format(
-            django_login_host=DJANGO_LOGIN_HOST
+            raise Exception("{cookie} cookie is missing".format(cookie=DJANGO_SESSION_COOKIE))
+        api = "{django_login_api}/api/sessions_api/".format(
+            django_login_api=DJANGO_LOGIN_API
         )
         response = requests.get(
             api, 
-            params={
-                "session_key": session_id,
-                "sessions_api_key": SESSIONS_API_KEY
+            headers = {
+                'cookie': '{cookie}={session_id}'.format(
+                    cookie=DJANGO_SESSION_COOKIE,
+                    session_id=session_id
+                )
             }
         )
         return response.json()
