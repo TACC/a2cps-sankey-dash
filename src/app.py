@@ -9,9 +9,11 @@ import pathlib # file paths
 # Data Cleaning and transformations
 import pandas as pd
 import numpy as np
-import requests
 from datetime import datetime
 import json
+
+# Get data from url, with ability to retry
+
 
 # Data visualization
 import plotly.express as px
@@ -33,16 +35,6 @@ from dash.dependencies import Input, Output, State, ALL, MATCH
 # import local modules
 from config_settings import *
 from data_processing import *
-
-
-# ----------------------------------------------------------------------------
-# DATA urls
-# ----------------------------------------------------------------------------
-# URL of live API data
-api_url = 'https://redcap.tacc.utexas.edu/api/vbr_api.php?op=consort'
-
-# URL of csv of historical dataframe
-csv_url = 'https://portals-api.tacc.utexas.edu/files/v2/download/wma_prtl/system/a2cps.storage.public/reports/consort/consort-data-all.csv'
 
 # ----------------------------------------------------------------------------
 # DATA VISUALIZATION
@@ -98,13 +90,6 @@ def build_datatable(data_source, table_id):
         )
     return new_datatable
 
-def build_dates_dropdown(type, options):
-    if type == 'api':
-        dates_dropdown = 'api'
-    else:
-        dates_dropdown = 'other'
-    return dates_dropdown
-
 def build_dash_content(chart, data_table): # build_sankey(nodes, sankey_df) build_datatable(redcap_df,'table_csv') redcap_df
     dash_content = [
         dbc.Row([
@@ -117,6 +102,29 @@ def build_dash_content(chart, data_table): # build_sankey(nodes, sankey_df) buil
         ])
     ]
     return dash_content
+
+# ----------------------------------------------------------------------------
+# Data loading parameters
+# ----------------------------------------------------------------------------
+file_url_root ='https://api.a2cps.org/files/v2/download/public/system/a2cps.storage.community/reports'
+report = 'consort'
+report_suffix = report + '-data-[mcc]-latest.csv'
+mcc_list=[1,2]
+
+# Load Data for page
+latest_files = get_latest_files_list(report_suffix, mcc_list)
+latest_data = load_data(file_url_root, report, latest_files) # Load data for latest data from url
+# latest_data = pd.read_csv(os.path.join(ASSETS_PATH, 'latest.csv')) # line to Load from local files for development purposes
+latest_data_dict = latest_data.to_dict('records')
+
+files_df = get_available_files_df(file_url_root, report)
+
+if not files_df.empty:
+    past_dates = list(files_df['date'].unique())
+else:
+    past_dates = []
+
+date_options = [{'label': 'latest', 'value': 'latest'}] + [{'label': d, 'value': d} for d in past_dates]
 # ----------------------------------------------------------------------------
 # DASH APP LAYOUT
 # ----------------------------------------------------------------------------
@@ -134,40 +142,47 @@ def get_layout():
         return html.H1("Unauthorized")
     return html.Div([
         html.Div([
-            dcc.Store(id='store_historical'),
-            html.Div(['version: 040721 17:15'],id="version",style={'display':'none'}),
-            html.Div(id='div_test'),
-            dbc.Row([
-                dbc.Col([
-                    html.H1('CONSORT Report'),
-                ],md = 9),
-                dbc.Col([
-                    daq.ToggleSwitch(
-                        id='toggle-datasource',
-                        label=['Live','Historical'],
-                        value=False
-                    ),
-                ],id='dd_datasource',md=3)
-            ]),
-            dbc.Row([
-                dbc.Col([
-                    html.Div(id="report_msg"),
-                ],md = 9),
-                dbc.Col([
-                    html.Div([dcc.Dropdown(id="dropdown_dates")],id="div_dropdown_dates"),
-                ],md = 3),
-            ]),
             dcc.Loading(
                 id="loading-1",
                 type="default",
-                children=html.Div(id="loading-output-1")
+                children=html.Div([
+                    dcc.Store(id='store_data'),
+                    html.Div(id='div_store_data'),
+                    html.Div(id='div_test'),
+                    dbc.Row([
+                        dbc.Col([
+                            html.H1('CONSORT Report'),
+                        ],md = 8),
+                        dbc.Col([
+                            dcc.Dropdown(
+                                id='dropdown-date',
+                                options=date_options,
+                                value=date_options[0]['value'],
+                            ),
+                        ],id='dd_date',md=2),
+                        dbc.Col([
+                            # TO DO: Convert this dropdown to use a list generated from the date selected in the dates dropdown.
+                            dcc.Dropdown(
+                                id='dropdown-mcc',
+                                options=[
+                                    {'label': 'MCC1', 'value': '1'},
+                                    {'label': 'MCC2', 'value': '2'}
+                                ],
+                                value='1',
+                            ),
+                        ],id='dd_mcc',md=2),
+                    ]),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Div(id="report_msg"),
+                        ],md = 9),
+                        dbc.Col([
+
+                        ],md = 3),
+                    ]),
+                    html.Div(id = 'dash_content'),
+                ],id="loading-output-1")
             ),
-            dcc.Loading(
-                id="loading-2",
-                type="default",
-                children=html.Div(id="loading-output-2")
-            ),
-            html.Div(id = 'dash_content'),
 
         ], style =CONTENT_STYLE)
     ],style=TACC_IFRAME_SIZE)
@@ -177,89 +192,82 @@ app.layout = get_layout
 # ----------------------------------------------------------------------------
 # DATA CALLBACKS
 # ----------------------------------------------------------------------------
-
-# return data on toggle
+# load selected data into data store
 @app.callback(
-    Output("loading-output-1", "children"),
-    Output('store_historical','data'),
-    Output('report_msg','children'),
-    Output('dropdown_dates','options'),
-    Output('div_dropdown_dates','style'),
-    # Output('dash_content','children'),
-    Input('toggle-datasource', 'value'),
-    State('store_historical','data')
-)
-def dd_values(data_source, data_state):
+    Output('store_data', 'data'),
+    Output('dropdown-mcc', 'value'),
+    Input('dropdown-date', 'value'),
+    State('store_data', 'data'))
+def set_dropdown_dates_value(selected_date, store_data):
     if not get_django_user():
         raise PreventUpdate
-    # time of date loading
-    now = datetime.now().astimezone()
-    date_string = now.strftime("%m/%d/%Y %H:%M %z")
-    msg_string = "Data last loaded at " + str(date_string) + "UTC"
-
-    hist_dict = data_state
-    dropdown_style = {}
-
-    if(data_source): # Load historical data if not yet loaded
-        if not data_state:
-            hist_dict = {}
-            hd = load_historical_data(csv_url) # load data from csv
-            dates = list(hd['date_time'].unique()) # list of unique dates in dataframe to supply dropdown options
-            dates.sort(reverse=True)
-            hist_dict['data'] = hd.to_dict('records') #store data in local data store
-            hist_dict['dates']  = dates
-
-        # set dropdown dropdown_options from dates
-        dropdown_options = [{'label': i, 'value': i} for i in hist_dict['dates']]
-
-    else: # load API Json and convert --> pandas DataFrame. Always do this live.
-        # Set date dropdown to API values
-        dropdown_options = [{'label': 'api', 'value': 'api'}]
-        dropdown_style = {'display':'none'}
-
-    return data_source, hist_dict, msg_string, dropdown_options, dropdown_style
-
-@app.callback(
-    Output('dropdown_dates', 'value'),
-    [Input('dropdown_dates', 'options')])
-def set_dropdown_dates_value(available_options):
-    if not get_django_user():
+    if not selected_date:
         raise PreventUpdate
-    return available_options[0]['value']
-
-@app.callback(
-    Output("loading-output-2", "children"),
-    Output('dash_content','children'),
-    Input('dropdown_dates','value'),
-    State('toggle-datasource', 'value'),
-    State('store_historical','data')
-)
-def dd_values(dropdown, toggle, historical_data):
-    if not get_django_user():
-        raise PreventUpdate
-    df = pd.DataFrame()
-
-    if not toggle: # live data from api
-        df = get_api_df(api_url) # Get data from API
-        chart_title = 'CONSORT Report from live API data'
-
-    else: # historical data from csv loaded to data store
-        df = pd.DataFrame(historical_data['data'])
-        df = df[df['date_time'] == dropdown]
-        chart_title = 'CONSORT Report from historical archive on ' + dropdown
-
-    if not df.empty:
-        data_table = [build_datatable(df,'table_csv')] # Build data_table from api data
-        nodes, sankey_df = get_sankey_dataframe(df) # transform API data into sankey data
-        sankey_fig = build_sankey(nodes, sankey_df) # turn sankey data into sankey figure
-        sankey_fig.update_layout(title = chart_title)
-        chart = dcc.Graph(id="sankey_chart",figure=sankey_fig) # create dash component chart from figure
-        dash_content = build_dash_content(chart, data_table) # create page content from variables
-
     else:
-        dash_content = html.Div('There has been an issue in loading data')
+        if store_data is None:
+            store_data = {}
+            store_data['latest'] = latest_data.to_dict('records')
+        else:
+            store_data = store_data
+            if selected_date in store_data.keys():
+                store_data = store_data
+            else:
+                selected_date_files = get_data_files_list(selected_date, files_df)
+                selected_date_data = load_data(file_url_root, report, selected_date_files)
+                if len(selected_date_data) > 0:
+                    store_data[str(selected_date)] = selected_date_data.to_dict('records')
+                else:
+                    store_data = store_data
 
-    return toggle, dash_content
+        return store_data, '1'
+
+# Load content of page
+@app.callback(
+    Output('dash_content','children'),
+    Input('dropdown-mcc', 'value'),
+    State('store_data', 'data'),
+    State('dropdown-date', 'value'))
+def show_store_data(mcc, store_data, selected_date):
+    if not get_django_user():
+        raise PreventUpdate
+    df_json = store_data[str(selected_date)]
+    error_div = html.Div('There is no data available for this selection')
+    if not df_json:
+        return error_div
+    else:
+        df = pd.DataFrame.from_dict(df_json)
+        if len(df) == 0:
+            kids = [html.P('len 0')]
+            return error_div
+        else:
+            if str(selected_date) == 'latest':
+                chart_title = 'CONSORT Report from latest data'
+
+            else: # historical data from csv loaded to data store
+                chart_title = 'CONSORT Report from str(selected_date)'
+
+            # selected_df = df[df['mcc'] == str(mcc)]
+            selected_df = df[df['mcc']==str(mcc)] #[df['mcc']==int(mcc)]
+
+            if len(selected_df) > 0:
+                data_table = build_datatable(selected_df,'table_selected')
+                nodes, sankey_df = get_sankey_dataframe(selected_df) # transform data into sankey data format
+                sankey_fig = build_sankey(nodes, sankey_df) # turn sankey data into sankey figure
+                sankey_fig.update_layout(title = chart_title)
+                chart = dcc.Graph(id="sankey_chart",figure=sankey_fig) # create dash component chart from figure
+                dash_content = build_dash_content(chart, data_table) # create page content from variables
+                # dash_content = [data_table]
+                content = html.Div([
+                    html.Div([html.P(str(len(nodes)))]),
+                    data_table,
+                ])
+                return dash_content  #dash_content
+            else:
+                return error_div
+
+
+
+
 
 # ----------------------------------------------------------------------------
 # RUN APPLICATION
