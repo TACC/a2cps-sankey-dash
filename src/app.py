@@ -151,7 +151,7 @@ def get_layout():
                     html.Div(id='div_test'),
                     dbc.Row([
                         dbc.Col([
-                            html.H1('CONSORT REPORT'),
+                            html.H1('CONSORT REPORT (new)'),
                         ],md = 8),
                         dbc.Col([
                             dcc.Dropdown(
