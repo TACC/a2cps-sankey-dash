@@ -28,7 +28,7 @@ def get_available_files_df(file_url_root, report):
     index_url = '/'.join([file_url_root, report,'index.json'])
     i_request = requests.get(index_url)
     if i_request != 200:
-        print(i_request.status_code)
+        # print(i_request.status_code)
         return pd.DataFrame()
     else:
         i = i_request.json()
@@ -66,7 +66,7 @@ def load_data(file_url_root, report, files_list):
             file = f[mcc]
             csv_url = '/'.join([file_url_root, report, file])
             csv_request = requests.get(csv_url)
-            print(csv_request.status_code)
+            # print(csv_request.status_code)
             csv_content = csv_request.content
             try:
                 csv_df = pd.read_csv(io.StringIO(csv_content.decode('utf-8')), usecols=[0,1,2], header=None)
